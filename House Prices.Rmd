@@ -1,0 +1,132 @@
+---
+title: "House Prices - Advanced Regression Techniques"
+output:
+  html_document:
+    df_print: paged
+  pdf_document:
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+library(data.table)
+library(ggplot2)
+library(randomForest)
+library(dplyr)
+library(corrplot)
+library(knitr)
+library(kableExtra)
+#library(easyGgplot2)
+library(caret)
+```
+
+## Data Import
+
+```{r import}
+# Data import
+raw.test <- fread(input = "D:/Data/test.csv", sep = ",", stringsAsFactors = F, data.table = F)
+raw.train <- fread(input = "D:/Data/train.csv", sep = ",", stringsAsFactors = F, data.table = F)
+
+# Bind and label both train and test sets
+fulldt <- rbind(raw.train[,-81], raw.test)
+fulldt <- cbind(fulldt, Set = c(rep("Train", times = dim(raw.train)[1]),
+                                rep("Test", times = dim(raw.test)[1])))
+```
+
+## Data Cleaning
+
+```{r cleaning}
+# Check for missing values
+x <- colSums(sapply(fulldt, is.na))
+
+# Set table
+x <- data.frame(Variables = names(x), NA.Count = x); rownames(x) <- c()
+
+# Remove variables that don't have missing values
+x <- x %>% filter(NA.Count > 0)
+
+kable(x, "html") %>%
+         kable_styling(full_width = F)
+```
+
+Replacing missing values by “0” for numeric variables
+
+```{r}
+y <- c("LotFrontage", "MasVnrArea", "BsmtFinSF2", "BsmtUnfSF", "TotalBsmtSF", "BsmtFullBath", "BsmtHalfBath")
+fulldt[,y] <- apply(fulldt[,y], 2, 
+                    function(x) {
+                            replace(x, is.na(x), 0)
+                            }
+                    )
+```
+
+Replacing missing values by “None” for factor variables
+
+```{r}
+y <- c("Alley", "BsmtQual", "BsmtExposure", "BsmtFinType1", "BsmtFinType2", "FireplaceQu", "PoolQC", "Fence", "MiscFeature", "GarageType", "GarageFinish", "GarageQual", "GarageCond", "BsmtCond")
+fulldt[,y] <- apply(fulldt[,y], 2, 
+                    function(x) {
+                            replace(x, is.na(x), "None")
+                            }
+                    )
+```
+
+Replacing missing values by the most common value
+
+```{r}
+y <- c("MSZoning", "Utilities", "Exterior1st", "Exterior2nd", "MasVnrType", "Electrical", "KitchenQual", "Functional", "SaleType")
+fulldt[,y] <- apply(fulldt[,y], 2, 
+                    function(x) {
+                            replace(x, is.na(x), names(which.max(table(x))))
+                            }
+                    )
+```
+
+Replacing missing values by the median
+
+```{r}
+y <- c("GarageCars", "GarageArea", "BsmtFinSF1")
+fulldt[,y] <- apply(fulldt[,y], 2, 
+                    function(x) {
+                            replace(x, is.na(x), median(x, na.rm = T))
+                            }
+                    )
+```
+
+With GarageYrBlt variable
+
+```{r}
+fulldt$GarageYrBlt[is.na(fulldt$GarageYrBlt)] <- fulldt$YearBuilt[is.na(fulldt$GarageYrBlt)]
+```
+
+
+
+```{r}
+table(sapply(fulldt, class))
+```
+
+```{r}
+# Colect name of variables that are character
+class.list <- sapply(fulldt, class)
+class.list.character <- names(class.list[which(class.list=="character")])
+
+# Convert to factor
+fulldt[class.list.character] <- lapply(fulldt[class.list.character], factor)
+
+# Fix MSSubClass class
+fulldt$MSSubClass <- factor(fulldt$MSSubClass)
+```
+
+```{r}
+# Create a "total area" feature by adding the basement area and ground living area
+fulldt$TotalArea <- fulldt$GrLivArea + fulldt$TotalBsmtSF
+
+# Create a "total number of baths" feature by adding all bathroom features
+fulldt$TotalBaths <- fulldt$BsmtFullBath + 
+                                fulldt$BsmtHalfBath +
+                                fulldt$FullBath + 
+                                fulldt$HalfBath
+
+# Create a "area aboveground" feature by adding the areas of the first and second floor
+fulldt$AreaAbvground <- fulldt$`1stFlrSF` + fulldt$`2ndFlrSF`
+```
+
